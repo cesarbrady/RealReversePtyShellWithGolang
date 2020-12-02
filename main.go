@@ -1,17 +1,3 @@
-# RealReversePtyShellWithGolang
-
-I have seen many projects, such as the dashboard of kubernetes, and gotty, they can use a web browser to connect to the emulation terminal of the server, just like connecting to the server through the ssh service.
-
-Out of curiosity, I wrote a demo in golang to achieve a similar function.
-
-Its characteristics are
-
-1. Use udp connection instead of tcp
-2. udp data is all encrypted
-3. The reversed shell is a real pty shell. For example, the experience of using vim on it is the same as operating locally
-4. The window size of pty that reversed can be dynamically change
-
-```go
 package main
 
 import (
@@ -31,10 +17,10 @@ import (
 )
 
 func client() {
-	// define the program to run
+	// 定义要开启的程序
 	c := exec.Command("bash")
 
-	// make it run inside pty
+	// 让它在pty当中运行
 	ptmx, err := pty.Start(c)
 	if err != nil {
 		_, fn, line, _ := runtime.Caller(0)
@@ -42,18 +28,18 @@ func client() {
 	}
 	defer func() { _ = ptmx.Close() }()
 
-	// Set the window size of an initial pty
+	// 设置一个初始的pty的窗口大小
 	pty.Setsize(ptmx, &pty.Winsize{
 		Rows: 30,
 		Cols: 120,
 	})
 
-	// Connect to the server
+	// 连接到服务器
 	k := kcpConnect("127.0.0.1", 12345, "demo key", "demo salt")
 
 	var ptmxExit bool
 
-  // Read the output of pty and send it to the server. If there is an error in reading, the command execution is considered to be over
+	// 一直循环读取pty的输出，并把输出发送给服务器，如果读取出错，则认为命令执行结束了
 	go func() {
 		for {
 			buf := make([]byte, 4096)
@@ -71,7 +57,7 @@ func client() {
 		}
 	}()
 
-	// read input from the server, and then write them to pty
+	// 循环从服务器读取输入，然后输出到pty当中
 	for {
 		var buf map[string]string
 		if try(func() {
@@ -85,7 +71,7 @@ func client() {
 			break
 		}
 
-		//  If the window size needs to be reset, set it
+		// 如果是需要重新设定仿真终端的窗口大小，则设置它
 		if !keyInMap("Rows", buf) {
 			_, err := ptmx.Write([]byte(buf["data"]))
 			if err != nil {
@@ -107,21 +93,21 @@ func client() {
 }
 
 func server() {
-	// On the server side, the listening port
+	// 在服务端，监听端口
 	k := <-kcpListen("0.0.0.0", 12345, "demo key", "demo salt").accept()
 
-	// Set the current pty mode to raw mode
+	// 设置当前pty的模式为raw模式
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		panic(err)
 	}
-	// Restore the current pty to the previous mode when exiting the function
+	// 在退出函数的时候把当前pty恢复为之前的模式
 	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 
 	stdinBufChan := make(chan []byte)
 	var ptmxExit bool
 
-	// In order not to block while read from stdin, chan is used here
+	// 为了能从stdin不阻塞，所以这里使用了chan来实现
 	go func() {
 		for {
 			buf := make([]byte, 4096)
@@ -136,7 +122,7 @@ func server() {
 		}
 	}()
 
-	// Read input from stdin and send it to the client
+	// 从stdin读取键盘输入，发送给客户端
 	go func() {
 		for {
 			select {
@@ -154,7 +140,7 @@ func server() {
 		}
 	}()
 
-	// Listen to the signal of the current pty size change, if it changes, send it to the client
+	// 监听当前pty大小改变的信号，如果发生改变，发送给客户端
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGWINCH)
 	go func() {
@@ -170,7 +156,7 @@ func server() {
 	}()
 	ch <- syscall.SIGWINCH
 
-	//  Read the message from the client and print it to the standard output of the current pty
+	// 循环读取从客户端发来的消息，打印到当前pty的标准输出
 	for {
 		var buf map[string]string
 		if try(func() {
@@ -197,4 +183,3 @@ func main() {
 		client()
 	}
 }
-```
